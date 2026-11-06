@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sistem Prediksi Risiko Gagal Bayar Kartu Kredit — TA-03</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+  <!-- Top Navigation -->
+  <header class="top-nav">
+    <div class="wrap">
+      <a href="/" class="brand">
+        <div class="brand-icon">💳</div>
+        <div class="brand-text">
+          <h1>CreditRisk AI</h1>
+          <span>Sistem Pendukung Keputusan Analis Kredit</span>
+        </div>
+      </a>
+      <nav class="nav-links">
+        <a href="/" class="nav-btn active">
+          <span>🏠</span> Prediksi Nasabah
+        </a>
+        <a href="/evaluasi" class="nav-btn">
+          <span>📊</span> Evaluasi Model
+        </a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero">
+    <div class="wrap">
+      <div class="hero-content">
+        <div class="hero-title-area">
+          <span class="badge-tag">Tugas Akhir 3 (TA-03) · Logistic Regression + SMOTE</span>
+          <h2>Prediksi Risiko Gagal Bayar Nasabah</h2>
+          <p>Masukkan data demografis, limit kredit, dan histori pembayaran 6 bulan terakhir untuk memprediksi probabilitas gagal bayar (<em>default</em>) pada bulan berikutnya.</p>
+        </div>
+        <div class="quick-stats">
+          <div class="quick-pill">
+            <span>ROC-AUC Model:</span>
+            <span class="val">{{ meta.auc }}</span>
+          </div>
+          <div class="quick-pill">
+            <span>Recall Gagal Bayar:</span>
+            <span class="val">{{ "%.1f"|format(meta.metrics.recall_gagal_bayar * 100) }}%</span>
+          </div>
+          <div class="quick-pill">
+            <span>Ambang Putusan:</span>
+            <span class="val">{{ threshold }}%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Main Content Grid -->
+  <main class="wrap main-grid">
+
+    <!-- Form Section -->
+    <section class="card">
+      <div class="card-header">
+        <div>
+          <h3>📝 Formulir Pengajuan & Histori Nasabah</h3>
+          <span class="sub-desc">Pastikan semua kolom terisi sesuai catatan perbankan nasabah.</span>
+        </div>
+      </div>
+
+      <!-- Quick Preset Data Buttons for Fast Demo -->
+      <div class="preset-bar">
+        <span class="preset-title">💡 Contoh Data Cepat:</span>
+        <button type="button" class="preset-btn safe" onclick="loadPreset('safe')">
+          <span>🟢</span> Nasabah Risiko Rendah
+        </button>
+        <button type="button" class="preset-btn risk" onclick="loadPreset('risk')">
+          <span>🔴</span> Nasabah Risiko Tinggi
+        </button>
+      </div>
+
+      {% if errors %}
+      <div class="alert" style="background:var(--risk-bg); border:1px solid var(--risk-border); color:var(--risk); padding:14px; border-radius:var(--radius-md); margin-bottom:20px;">
+        <strong>⚠️ Terdapat kesalahan pengisian formulir:</strong>
+        <ul style="margin:8px 0 0 20px;">
+          {% for e in errors %}<li>{{ e }}</li>{% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      <form method="post" id="predictionForm" novalidate>
+
+        <!-- 1. Profil Demografis & Limit -->
+        <div class="form-section">
+          <h4 class="section-legend">👤 1. Profil & Batas Kredit</h4>
+          <div class="field-grid-3">
+            {% for name, (label, opts) in selects.items() %}
+            <div class="input-group">
+              <label class="input-label" for="{{ name }}">{{ label }}</label>
+              <select name="{{ name }}" id="{{ name }}" class="input-control">
+                {% for val, text in opts %}
+                <option value="{{ val }}"
+                  {% if form.get(name)|string == val|string %}selected
+                  {% elif not form and loop.first %}selected{% endif %}>
+                  {{ text }}
+                </option>
+                {% endfor %}
+              </select>
+            </div>
+            {% endfor %}
+
+            {% for name, label, lo, hi, default in fields_profil %}
+            <div class="input-group">
+              <label class="input-label" for="{{ name }}">
+                <span>{{ label }}</span>
+                <span style="font-size:0.7rem; color:var(--text-muted);">{{ "{:,}".format(lo) }} - {{ "{:,}".format(hi) }}</span>
+              </label>
+              <input type="number" name="{{ name }}" id="{{ name }}" class="input-control"
+                     min="{{ lo }}" max="{{ hi }}" step="{{ 1 if name == 'AGE' else 'any' }}"
+                     value="{{ form.get(name, default) }}" required>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <!-- 2. Status Riwayat Pembayaran (PAY_0 - PAY_6) -->
+        <div class="form-section">
+          <h4 class="section-legend">🗓️ 2. Status Keterlambatan Pembayaran (6 Bulan Terakhir)</h4>
+          <div class="helper-banner">
+            <span>ℹ️</span>
+            <span><strong>Panduan Kode:</strong> -2 = Tanpa tagihan | -1 = Lunas tepat waktu | 0 = Minimum payment | 1–8 = Terlambat sekian bulan</span>
+          </div>
+          <div class="field-grid-3">
+            {% for name, label, lo, hi, default in pay_fields %}
+            <div class="input-group">
+              <label class="input-label" for="{{ name }}">{{ label }}</label>
+              <input type="number" name="{{ name }}" id="{{ name }}" class="input-control"
+                     min="{{ lo }}" max="{{ hi }}" step="1"
+                     value="{{ form.get(name, default) }}" required>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <!-- 3. Jumlah Tagihan Bulanan (BILL_AMT1 - BILL_AMT6) -->
+        <div class="form-section">
+          <h4 class="section-legend">💳 3. Jumlah Tagihan Bulanan (NT$)</h4>
+          <div class="field-grid-3">
+            {% for name, label, lo, hi, default in bill_fields %}
+            <div class="input-group">
+              <label class="input-label" for="{{ name }}">{{ label }}</label>
+              <input type="number" name="{{ name }}" id="{{ name }}" class="input-control"
+                     min="{{ lo }}" max="{{ hi }}" step="any"
+                     value="{{ form.get(name, default) }}" required>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <!-- 4. Jumlah Pembayaran Sebelumnya (PAY_AMT1 - PAY_AMT6) -->
+        <div class="form-section">
+          <h4 class="section-legend">💰 4. Jumlah Pembayaran yang Dilakukan (NT$)</h4>
+          <div class="field-grid-3">
+            {% for name, label, lo, hi, default in payamt_fields %}
+            <div class="input-group">
+              <label class="input-label" for="{{ name }}">{{ label }}</label>
+              <input type="number" name="{{ name }}" id="{{ name }}" class="input-control"
+                     min="{{ lo }}" max="{{ hi }}" step="any"
+                     value="{{ form.get(name, default) }}" required>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <!-- Submit & Reset Actions -->
+        <div class="btn-row">
+          <button type="submit" class="btn btn-primary">
+            <span>⚡</span> Analisis Risiko Kredit
+          </button>
+          <button type="button" class="btn btn-secondary" onclick="resetForm()">
+            <span>↺</span> Reset Form
+          </button>
+        </div>
+
+      </form>
+    </section>
+
+    <!-- Sticky Aside: Result & Model Info -->
+    <aside class="result-sticky">
+
+      <!-- Prediction Verdict Card -->
+      <div class="card result-card {{ result.risk_color if result else '' }}">
+        
+        {% if result %}
+          <div class="verdict-banner {{ result.risk_color }}">
+            {% if result.risky %}
+              <span>⚠️</span> {{ result.label }}
+            {% else %}
+              <span>🛡️</span> {{ result.label }}
+            {% endif %}
+          </div>
+
+          <div class="prob-display">
+            <div class="prob-score {{ result.risk_color }}">{{ result.pct }}%</div>
+            <div class="prob-subtext">Probabilitas Default (Gagal Bayar)</div>
+          </div>
+
+          <div class="meter-container">
+            <div class="meter-track">
+              <div class="meter-fill {{ result.risk_color }}" style="width: {{ result.pct }}%"></div>
+              <div class="threshold-pointer" style="left: {{ result.threshold }}%" data-threshold="{{ result.threshold }}"></div>
+            </div>
+            <div class="meter-legend">
+              <span>0% (Sangat Aman)</span>
+              <span>100% (Pasti Default)</span>
+            </div>
+          </div>
+
+          <div class="compare-grid">
+            <div class="compare-box">
+              <div class="compare-val safe">{{ (100 - result.pct)|round(1) }}%</div>
+              <div class="compare-label">Prob. Bayar Tepat Waktu</div>
+            </div>
+            <div class="compare-box">
+              <div class="compare-val risk">{{ result.pct }}%</div>
+              <div class="compare-label">Prob. Gagal Bayar</div>
+            </div>
+          </div>
+
+          <div style="padding:16px 20px; font-size:0.8rem; color:var(--text-muted); background:var(--bg-main);">
+            <strong>Rekomendasi Kebijakan:</strong>
+            {% if result.risky %}
+              Permohonan disarankan ditolak atau dikenakan mitigasi jaminan tambahan karena nasabah memiliki riwayat keterlambatan kredit dan rasio tagihan tinggi.
+            {% else %}
+              Permohonan layak disetujui dengan batas kredit standar. Pola pembayaran nasabah tergolong disiplin.
+            {% endif %}
+          </div>
+
+        {% else %}
+          <div class="empty-result">
+            <div class="empty-icon">📊</div>
+            <h4>Siap Menganalisis</h4>
+            <p>Isi formulir data nasabah di sebelah kiri atau gunakan tombol <em>Contoh Data Cepat</em> untuk mencoba simulasi prediksi instan.</p>
+          </div>
+        {% endif %}
+      </div>
+
+      <!-- Compact Model Specs -->
+      <div class="card model-summary-card">
+        <h4><span>⚙️</span> Spesifikasi Sistem Prediksi</h4>
+        <table class="spec-table">
+          <tr>
+            <td class="label">Algoritma</td>
+            <td class="val">Logistic Regression</td>
+          </tr>
+          <tr>
+            <td class="label">Teknik Sampling</td>
+            <td class="val">{{ "SMOTE" if meta.smote_used else "Balanced Weights" }}</td>
+          </tr>
+          <tr>
+            <td class="label">Area Under Curve (AUC)</td>
+            <td class="val">{{ meta.auc }}</td>
+          </tr>
+          <tr>
+            <td class="label">Recall Gagal Bayar</td>
+            <td class="val">{{ "%.1f"|format(meta.metrics.recall_gagal_bayar * 100) }}%</td>
+          </tr>
+          <tr>
+            <td class="label">Dimensi Fitur</td>
+            <td class="val">{{ meta.features|length }} Variabel</td>
+          </tr>
+        </table>
+        <a href="/evaluasi" class="nav-link-eval">
+          <span>Buka Dashboard Evaluasi Detail</span>
+          <span>→</span>
+        </a>
+      </div>
+
+    </aside>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer-main">
+    <div class="wrap footer-content">
+      <div>
+        <strong>Tugas Akhir 3 (TA-03)</strong> — Sistem Prediksi Risiko Gagal Bayar Kartu Kredit berbasis Regresi Logistik.
+      </div>
+      <div>
+        Dataset: UCI Machine Learning Repository (30.000 records)
+      </div>
+    </div>
+  </footer>
+
+  <!-- Quick Demo Presets Script -->
+  <script>
+    const presets = {
+      safe: {
+        LIMIT_BAL: 400000, AGE: 38, SEX: 1, EDUCATION: 1, MARRIAGE: 1,
+        PAY_0: -1, PAY_2: -1, PAY_3: -1, PAY_4: -1, PAY_5: -1, PAY_6: -1,
+        BILL_AMT1: 15000, BILL_AMT2: 12000, BILL_AMT3: 10000,
+        BILL_AMT4: 8000,  BILL_AMT5: 6000,  BILL_AMT6: 5000,
+        PAY_AMT1: 15000,  PAY_AMT2: 12000,  PAY_AMT3: 10000,
+        PAY_AMT4: 8000,   PAY_AMT5: 6000,   PAY_AMT6: 5000
+      },
+      risk: {
+        LIMIT_BAL: 20000, AGE: 23, SEX: 2, EDUCATION: 2, MARRIAGE: 2,
+        PAY_0: 2, PAY_2: 2, PAY_3: 2, PAY_4: 0, PAY_5: 0, PAY_6: 0,
+        BILL_AMT1: 19500, BILL_AMT2: 19000, BILL_AMT3: 18500,
+        BILL_AMT4: 17000, BILL_AMT5: 16500, BILL_AMT6: 15000,
+        PAY_AMT1: 0,     PAY_AMT2: 500,    PAY_AMT3: 0,
+        PAY_AMT4: 500,   PAY_AMT5: 0,      PAY_AMT6: 0
+      }
+    };
+
+    function loadPreset(type) {
+      const data = presets[type];
+      if (!data) return;
+      for (const [key, val] of Object.entries(data)) {
+        const el = document.getElementById(key);
+        if (el) el.value = val;
+      }
+    }
+
+    function resetForm() {
+      document.getElementById('predictionForm').reset();
+    }
+  </script>
+
+</body>
+</html>

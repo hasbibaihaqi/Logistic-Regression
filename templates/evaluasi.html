@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard Evaluasi Model Regresi Logistik — TA-03</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+  <!-- Top Navigation -->
+  <header class="top-nav">
+    <div class="wrap">
+      <a href="/" class="brand">
+        <div class="brand-icon">📈</div>
+        <div class="brand-text">
+          <h1>Model Analytics & Performance</h1>
+          <span>Evaluasi Metrik, Confusion Matrix, & ROC-AUC</span>
+        </div>
+      </a>
+      <nav class="nav-links">
+        <a href="/" class="nav-btn">
+          <span>🏠</span> Prediksi Nasabah
+        </a>
+        <a href="/evaluasi" class="nav-btn active">
+          <span>📊</span> Evaluasi Model
+        </a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero">
+    <div class="wrap">
+      <div class="hero-content">
+        <div class="hero-title-area">
+          <span class="badge-tag">Evaluasi Diagnostik Model · Uji Validasi 20% (6.000 Sampel)</span>
+          <h2>Kinerja Algoritma Regresi Logistik</h2>
+          <p>Tinjauan kuantitatif dan analisis bisnis risiko kredit. Model dilatih dengan teknik penyeimbangan kelas <strong>SMOTE</strong> untuk memprioritaskan deteksi nasabah berisiko gagal bayar (<em>High Recall for Minority Class</em>).</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Main Evaluation Container -->
+  <main class="wrap eval-dashboard">
+
+    <!-- Row 1: KPI Cards -->
+    <div class="metric-cards-row">
+      <div class="kpi-card kpi-primary">
+        <div class="kpi-top">
+          <span class="kpi-label">ROC-AUC Score</span>
+          <span class="kpi-icon">🎯</span>
+        </div>
+        <div class="kpi-value">{{ meta.auc }}</div>
+        <div class="kpi-desc">Kemampuan diskriminasi kelas target (>0.70 = Model Baik)</div>
+      </div>
+
+      <div class="kpi-card kpi-risk">
+        <div class="kpi-top">
+          <span class="kpi-label">Recall Gagal Bayar ⭐</span>
+          <span class="kpi-icon">🛡️</span>
+        </div>
+        <div class="kpi-value">{{ "%.1f"|format(meta.metrics.recall_gagal_bayar * 100) }}%</div>
+        <div class="kpi-desc">Metrik Terpenting: Rasio nasabah macet yang berhasil diidentifikasi</div>
+      </div>
+
+      <div class="kpi-card kpi-safe">
+        <div class="kpi-top">
+          <span class="kpi-label">Precision Gagal Bayar</span>
+          <span class="kpi-icon">⚖️</span>
+        </div>
+        <div class="kpi-value">{{ "%.1f"|format(meta.metrics.precision_gagal_bayar * 100) }}%</div>
+        <div class="kpi-desc">Ketepatan prediksi nasabah yang dinyatakan berisiko</div>
+      </div>
+
+      <div class="kpi-card kpi-warning">
+        <div class="kpi-top">
+          <span class="kpi-label">F1-Score (Default)</span>
+          <span class="kpi-icon">📊</span>
+        </div>
+        <div class="kpi-value">{{ meta.metrics.f1_gagal_bayar }}</div>
+        <div class="kpi-desc">Harmonic mean antara Precision dan Recall kelas minoritas</div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-top">
+          <span class="kpi-label">Total Data Evaluasi</span>
+          <span class="kpi-icon">🗂️</span>
+        </div>
+        <div class="kpi-value">{{ "{:,}".format(meta.n_test) }}</div>
+        <div class="kpi-desc">Data uji independen (20% dari 30.000 records)</div>
+      </div>
+    </div>
+
+    <!-- Row 2: Confusion Matrix & ROC Curve -->
+    <div class="charts-grid-2">
+
+      <!-- Confusion Matrix Card -->
+      <section class="card">
+        <div class="card-header">
+          <h3><span>🔢</span> Confusion Matrix & Dampak Finansial</h3>
+          <span class="sub-desc">Evaluasi pada 6.000 nasabah data uji</span>
+        </div>
+
+        {% if charts.confusion_matrix %}
+        <div class="eval-img-box">
+          <img src="/model/eval/{{ charts.confusion_matrix }}" alt="Confusion Matrix Chart">
+        </div>
+        {% endif %}
+
+        <div class="data-table-wrapper" style="margin-top:16px;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Kelas Aktual</th>
+                <th>Prediksi: Tidak Berisiko (0)</th>
+                <th>Prediksi: Gagal Bayar (1)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Aktual: Tidak Berisiko</strong></td>
+                <td style="color:var(--safe); font-weight:700;">TN = {{ "{:,}".format(meta.confusion_matrix.TN) }}</td>
+                <td style="color:var(--warning); font-weight:700;">FP = {{ "{:,}".format(meta.confusion_matrix.FP) }}</td>
+              </tr>
+              <tr>
+                <td><strong>Aktual: Gagal Bayar (Default)</strong></td>
+                <td style="color:var(--risk); font-weight:700;">FN = {{ "{:,}".format(meta.confusion_matrix.FN) }} ⚠️</td>
+                <td style="color:var(--primary); font-weight:700;">TP = {{ "{:,}".format(meta.confusion_matrix.TP) }} ✅</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="insight-callout risk-callout">
+          <strong>💡 Justifikasi Metrik Bisnis Perbankan (FP vs FN):</strong>
+          <p>• <strong>False Negative (FN = {{ "{:,}".format(meta.confusion_matrix.FN) }}):</strong> Nasabah berisiko diprediksi aman. Dampaknya adalah potensi <em>Non-Performing Loan (NPL)</em> dan kerugian modal tunai perbankan. Ini adalah skenario <strong>paling berbahaya</strong>.</p>
+          <p>• <strong>False Positive (FP = {{ "{:,}".format(meta.confusion_matrix.FP) }}):</strong> Nasabah aman diprediksi berisiko. Dampaknya hanya berupa verifikasi berkas tambahan atau hilangnya potensi margin bunga, namun tidak membahayakan solvabilitas bank.</p>
+          <p>👉 <em>Oleh karena itu, optimasi model memprioritaskan <strong>Recall (63%)</strong> dibanding Precision.</em></p>
+        </div>
+      </section>
+
+      <!-- ROC-AUC Curve Card -->
+      <section class="card">
+        <div class="card-header">
+          <h3><span>📉</span> Kurva ROC (Receiver Operating Characteristic)</h3>
+          <span class="sub-desc">Trade-off True Positive vs False Positive Rate</span>
+        </div>
+
+        {% if charts.roc_curve %}
+        <div class="eval-img-box">
+          <img src="/model/eval/{{ charts.roc_curve }}" alt="ROC Curve Chart">
+        </div>
+        {% endif %}
+
+        <div class="insight-callout" style="margin-top:16px;">
+          <strong>💡 Analisis Kurva ROC:</strong>
+          <p>Kurva berada jauh di atas garis diagonal acak dengan skor <strong>AUC = {{ meta.auc }}</strong>. Ini menandakan model memiliki kemampuan diskriminatif yang kokoh untuk mengklasifikasikan nasabah berisiko vs aman pada berbagai variasi ambang batas (<em>thresholds</em>).</p>
+        </div>
+
+        <div style="margin-top:20px;">
+          <h4 style="font-size:0.95rem; font-weight:700; margin-bottom:10px;">Laporan Klasifikasi Detail:</h4>
+          <div class="data-table-wrapper">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Kategori</th>
+                  <th>Precision</th>
+                  <th>Recall</th>
+                  <th>F1-Score</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="feature-pill" style="color:var(--safe); border-color:var(--safe);">Tidak Berisiko (0)</span></td>
+                  <td>{{ meta.metrics.precision_tidak }}</td>
+                  <td>{{ meta.metrics.recall_tidak }}</td>
+                  <td>{{ meta.metrics.f1_tidak }}</td>
+                </tr>
+                <tr>
+                  <td><span class="feature-pill" style="color:var(--risk); border-color:var(--risk);">Gagal Bayar (1) ⭐</span></td>
+                  <td>{{ meta.metrics.precision_gagal_bayar }}</td>
+                  <td>{{ meta.metrics.recall_gagal_bayar }}</td>
+                  <td>{{ meta.metrics.f1_gagal_bayar }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- Row 3: Class Imbalance & Feature Importance -->
+    <div class="charts-grid-2">
+
+      <!-- Class Distribution & SMOTE -->
+      <section class="card">
+        <div class="card-header">
+          <h3><span>⚖️</span> Penanganan Ketidakseimbangan Kelas (SMOTE)</h3>
+          <span class="sub-desc">Dataset Asli: 77.9% Aman vs 22.1% Gagal Bayar</span>
+        </div>
+
+        {% if charts.class_distribution %}
+        <div class="eval-img-box">
+          <img src="/model/eval/{{ charts.class_distribution }}" alt="Distribusi Kelas">
+        </div>
+        {% endif %}
+
+        <div class="insight-callout" style="margin-top:16px;">
+          <strong>💡 Urgensi Teknik SMOTE:</strong>
+          <p>Jika model dilatih tanpa penyeimbangan, model akan bias memprediksi semua nasabah sebagai "Tidak Gagal Bayar" (akurasi tinggi semu namun Recall 0%). Dengan <strong>SMOTE (Synthetic Minority Over-sampling Technique)</strong> pada data latih, sampel kelas minoritas digandakan menjadi seimbang (1:1), melatih model mengenali pola kegagalan bayar secara akurat.</p>
+        </div>
+      </section>
+
+      <!-- Feature Importance -->
+      <section class="card">
+        <div class="card-header">
+          <h3><span>🔍</span> Fitur Paling Berpengaruh (Koefisien Regresi)</h3>
+          <span class="sub-desc">Pengaruh log-odds terhadap risiko gagal bayar</span>
+        </div>
+
+        {% if charts.feature_importance %}
+        <div class="eval-img-box">
+          <img src="/model/eval/{{ charts.feature_importance }}" alt="Pentingnya Fitur">
+        </div>
+        {% endif %}
+
+        <div class="insight-callout" style="margin-top:16px;">
+          <strong>💡 Interpretasi Koefisien Model:</strong>
+          <p>• <strong>Koefisien Positif Tertinggi (Merah):</strong> Status keterlambatan bayar bulan terakhir (<code>PAY_0</code>, <code>PAY_2</code>). Semakin sering nasabah menunda pembayaran, eksponensial risiko gagal bayar meningkat drastis.</p>
+          <p>• <strong>Koefisien Negatif (Hijau):</strong> Pembayaran riil (<code>PAY_AMT1</code> - <code>PAY_AMT6</code>) dan Limit Kredit (<code>LIMIT_BAL</code>) tinggi bertindak sebagai peredam risiko default.</p>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- Model Technical Specification & Cloud Readiness -->
+    <section class="card">
+      <div class="card-header">
+        <h3><span>🛠️</span> Arsitektur & Kesiapan Publikasi (Deployment)</h3>
+        <span class="sub-desc">Pipeline end-to-end terstandarisasi untuk Railway / Render</span>
+      </div>
+
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:16px; margin-bottom:20px;">
+        <div style="padding:14px; background:var(--bg-main); border-radius:var(--radius-md); border:1px solid var(--line);">
+          <div style="color:var(--text-muted); font-size:0.75rem; font-weight:700;">PIPELINE ARTEFAK</div>
+          <div style="font-size:1rem; font-weight:700; margin-top:4px;">Scikit-Learn & Joblib Serialization</div>
+          <div style="font-size:0.8rem; color:var(--text-sub); margin-top:4px;">Model dan Scaler disimpan terpisah untuk inferensi aman tanpa data leakage.</div>
+        </div>
+
+        <div style="padding:14px; background:var(--bg-main); border-radius:var(--radius-md); border:1px solid var(--line);">
+          <div style="color:var(--text-muted); font-size:0.75rem; font-weight:700;">SERVER PRODUKSI</div>
+          <div style="font-size:1rem; font-weight:700; margin-top:4px;">Gunicorn WSGI + Procfile</div>
+          <div style="font-size:0.8rem; color:var(--text-sub); margin-top:4px;">Mendukung deployment zero-configuration pada cloud platform modern.</div>
+        </div>
+
+        <div style="padding:14px; background:var(--bg-main); border-radius:var(--radius-md); border:1px solid var(--line);">
+          <div style="color:var(--text-muted); font-size:0.75rem; font-weight:700;">INTERAKTIVITAS RIIL</div>
+          <div style="font-size:1rem; font-weight:700; margin-top:4px;">Input Validasi Dinamis</div>
+          <div style="font-size:0.8rem; color:var(--text-sub); margin-top:4px;">Pengecekan batasan nilai, tipe data, serta respons instan prediktif.</div>
+        </div>
+      </div>
+
+      <details style="cursor:pointer; font-size:0.85rem;">
+        <summary style="font-weight:700; color:var(--primary); padding:6px 0;">
+          Daftar Lengkap {{ meta.features|length }} Fitur Model Regresi Logistik
+        </summary>
+        <div class="feature-badge-cloud">
+          {% for f in meta.features %}
+            <span class="feature-pill">{{ f }}</span>
+          {% endfor %}
+        </div>
+      </details>
+    </section>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer-main">
+    <div class="wrap footer-content">
+      <div>
+        <strong>Tugas Akhir 3 (TA-03)</strong> — Analitik Kinerja Model Prediksi Kelayakan Kredit.
+      </div>
+      <div>
+        <a href="/" style="color:var(--primary); text-decoration:none; font-weight:600;">← Kembali ke Halaman Prediksi</a>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>
